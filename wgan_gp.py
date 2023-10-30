@@ -1,9 +1,10 @@
 # -*- coding: utf-8 -*-
 """
-Created on Thu Oct 26 16:02:56 2023
+Created on Mon Oct 30 15:40:35 2023
 
 @author: dohyeon
 """
+
 
 import numpy as np
 import torch
@@ -12,6 +13,7 @@ import torchvision
 import torchvision.transforms as transforms
 from torch.utils.data import DataLoader
 import torch.optim as optim
+from torch.autograd import grad
 
 transform = transforms.Compose([
     transforms.ToTensor(),
@@ -68,6 +70,19 @@ class Discriminator(nn.Module):
         out = self.model(x)
         return out
 
+def cal_gradient(t_gradients, t_lambda1):
+
+    # gradients를 재구성하여 각 배치의 데이터를 하나의 행으로 만듭니다.
+    gradients_reshaped = t_gradients.view(t_gradients.size()[0], -1)
+    
+    # gradients의 2-노름을 계산합니다.
+    gradient_norms = gradients_reshaped.norm(2, dim=1)
+    
+    # 그래디언트 페널티 계산
+    deviations = gradient_norms - 1
+    gradient_penalty = t_lambda1 * (deviations ** 2).mean()
+
+    return gradient_penalty
 #%%
 
 # 하이퍼파라미터
@@ -75,9 +90,8 @@ z_dim = 100
 img_dim = 784
 lr = 0.0001
 batch_size = 32
-num_epochs = 100
-clip_value = 0.01
-
+num_epochs = 50
+lambda1 = 2
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -105,14 +119,24 @@ for epoch in range(num_epochs):
             d_loss_real = discriminator(real_data)
             d_loss_fake = discriminator(fake_images)
 
-            d_loss = -torch.mean(d_loss_real) + torch.mean(d_loss_fake)
+            alpha = torch.rand(batch_size, 1).to(device)
+            alpha.to(device)
+
+            x_hat = (alpha * real_data + (1 - alpha) * fake_images.view(fake_images.size(0),-1)).detach()
+            x_hat.requires_grad = True
+
+            pred_hat = discriminator(x_hat)
+            gradients = grad(outputs=pred_hat, inputs=x_hat, grad_outputs=torch.ones(pred_hat.size()).to(device),
+                                             create_graph=True, retain_graph=True, only_inputs=True)[0]
+
+            gradient_penalty = cal_gradient(gradients, lambda1)
+
+            d_loss = -torch.mean(d_loss_real) + torch.mean(d_loss_fake) + gradient_penalty
 
             d_optimizer.zero_grad()
             d_loss.backward()
             d_optimizer.step()
 
-            for p in discriminator.parameters():
-                p.data.clamp_(-clip_value, clip_value)
 
         #생성자 학습
         g_optimizer.zero_grad()
@@ -129,10 +153,7 @@ for epoch in range(num_epochs):
     print(f"Epoch [{epoch + 1}/{num_epochs}] D Loss: {d_loss.item()} G Loss: {g_loss.item()}")
 
 
-
 #%%
-
-
 
 # 학습된 생성자를 이용해서 가짜 샘플 생성
 import matplotlib.pyplot as plt
@@ -149,6 +170,16 @@ for i in range(8):
     axes[i].axis('off')
 plt.show()
 #print(gen_labels[:8])
+
+
+
+
+
+
+
+
+
+
 
 
 

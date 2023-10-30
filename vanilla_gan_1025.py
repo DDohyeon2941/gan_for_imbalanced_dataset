@@ -17,8 +17,8 @@ transform = transforms.Compose([
 
 
 train_dataset = torchvision.datasets.MNIST(root='./data', train=True, transform=transform, download=False)
-minority_data = [(data, label) for data, label in train_dataset if label == 1]
-minority_loader = DataLoader(minority_data, batch_size= 16, shuffle=True)
+minority_data = [(data, label) for data, label in train_dataset if label == 8]
+minority_loader = DataLoader(minority_data, batch_size= 32, shuffle=True)
 
 
 class Generator(nn.Module):
@@ -60,7 +60,7 @@ criterion = nn.BCELoss()
 optimizer_g = torch.optim.Adam(generator.parameters(), lr= 1e-4)
 optimizer_d = torch.optim.Adam(discriminator.parameters(), lr= 1e-4)
 
-num_epochs = 20
+num_epochs = 100
 latent_size = 100
 
 for epoch in range(num_epochs):
@@ -103,7 +103,7 @@ print('Training complete.')
 import matplotlib.pyplot as plt
 
 with torch.no_grad():
-    z = torch.randn(16, latent_size).to(device)  # 64개의 랜덤 벡터 생성
+    z = torch.randn(32, latent_size).to(device)  # 64개의 랜덤 벡터 생성
     fake_images = generator(z).detach().cpu()
 
 # 이미지 출력
