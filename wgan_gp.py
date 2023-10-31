@@ -21,16 +21,16 @@ transform = transforms.Compose([
 
 
 train_dataset = torchvision.datasets.MNIST(root='./data', train=True, transform=transform, download=False)
-minority_data = [(data, label) for data, label in train_dataset if label in [8,]][:200]
+minority_data = [(data, label) for data, label in train_dataset if label in [4,]][:200]
 minority_loader = DataLoader(minority_data, batch_size= 32, shuffle=True, drop_last=True)
 
 
 class Generator(nn.Module):
-    def __init__(self):
+    def __init__(self, z_dim):
         super(Generator, self).__init__()
 
         self.model = nn.Sequential(
-            nn.Linear(100, 256),
+            nn.Linear(z_dim, 256),
             nn.LeakyReLU(0.2, inplace=True),
             nn.Linear(256, 512),
             nn.LeakyReLU(0.2, inplace=True),
@@ -90,16 +90,16 @@ z_dim = 100
 img_dim = 784
 lr = 0.0001
 batch_size = 32
-num_epochs = 50
-lambda1 = 2
+num_epochs = 10
+lambda1 = 5
 
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+#device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-#device = torch.device('cpu')
+device = torch.device('cpu')
 
 
 # 모델 및 옵티마이저 초기화
-generator = Generator().to(device)
+generator = Generator(z_dim).to(device)
 discriminator = Discriminator().to(device)
 g_optimizer = optim.RMSprop(generator.parameters(), lr=lr)
 d_optimizer = optim.RMSprop(discriminator.parameters(), lr=lr)
@@ -113,6 +113,8 @@ for epoch in range(num_epochs):
 
         # 판별자 학습
         for _ in range(5):
+            d_optimizer.zero_grad()
+
             z = torch.randn(batch_size, z_dim).to(device)
             fake_images = generator(z)
 
@@ -133,7 +135,6 @@ for epoch in range(num_epochs):
 
             d_loss = -torch.mean(d_loss_real) + torch.mean(d_loss_fake) + gradient_penalty
 
-            d_optimizer.zero_grad()
             d_loss.backward()
             d_optimizer.step()
 
