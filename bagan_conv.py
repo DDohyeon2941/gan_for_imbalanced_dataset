@@ -82,8 +82,8 @@ class LatentVectorGenerator(nn.Module):
         self.num_classes = num_classes
         self.latent_dim = latent_dim
         
-        self.means = torch.zeros(num_classes, latent_dim)
-        self.covariances = torch.zeros(num_classes, latent_dim, latent_dim)
+        self.means = torch.zeros(num_classes, latent_dim).to(device)
+        self.covariances = torch.zeros(num_classes, latent_dim, latent_dim).to(device)
         self.X_cs = []
 
     def fit(self, X, labels):
@@ -134,7 +134,7 @@ def train_latent_vector_generator(encoder, latent_vector_generator, data_loader,
         inputs, targets = inputs.to(device), targets.to(device)  # inputs와 targets를 GPU로 옮김
         #inputs = inputs.view(inputs.size(0), -1)
         with torch.no_grad():
-            z = encoder(inputs)
+            z = encoder(inputs).to(device)
             z = z.view(z.size(0), -1)
         latent_vectors.append(z.cpu().numpy())
         labels.append(targets.cpu().numpy())
@@ -165,13 +165,14 @@ class Discriminator(nn.Module):
         self.model[0].bias.data = encoder.model[0].bias.data.clone()
 
     def forward(self, x):
-        #output = self.model(x)
+        x = self.model(x)
+        """
         for layer in self.model:
             x = layer(x)
             print(x.shape)
-
-        output = nn.functional.softmax(x, dim=1)
-        return output
+        """
+        #output = nn.functional.softmax(x, dim=1)
+        return x
 
 
 class Generator(nn.Module):
@@ -190,10 +191,10 @@ class Generator(nn.Module):
 #%%
 
 lr = 0.0001
-num_epochs = 2
+num_epochs = 10
 input_dim = 28 * 28
 output_dim = 50
-batch_size = 64
+batch_size = 128
 #device = torch.device('cpu')
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -229,11 +230,11 @@ for epoch in range(num_epochs):
 #Initialize the GAN with the trained autoencoder weights
 
 
-lr = 0.0002
+lr = 0.0005
 
 num_classes = 10
 latent_dim = 6272
-
+#batch_size = 128
 
 # LatentVectorGenerator 준비
 latent_vector_generator = LatentVectorGenerator(num_classes=num_classes, latent_dim=latent_dim).to(device)
@@ -289,16 +290,16 @@ for epoch in range(num_epochs):
         g_optimizer.zero_grad()
 
         # 가짜 이미지에 대한 손실 계산
-        fake_labels = torch.randint(0, num_classes, (imgs.size(0),)).to(device)
+        fake_labels = torch.randint(0, num_classes, (num_fake_images,)).to(device)
         fake_images = generator(fake_labels).to(device)
-        outputs = discriminator(fake_images)
+        outputs = discriminator(fake_images.detach())
         g_loss = criterion1(outputs, fake_labels)  # 판별자가 실제 라벨로 분류하도록 손실 계산
 
         # 생성자 업데이트
         g_loss.backward()
         g_optimizer.step()
 
-    print(f"[Epoch {epoch}/{num_epochs}] [Batch {i}/{len(data_loader)}] [D loss: {d_loss.item()}] [G loss: {g_loss.item()}]")
+        print(f"[Epoch {epoch}/{num_epochs}] [Batch {i}/{len(data_loader)}] [D loss: {d_loss.item()}] [G loss: {g_loss.item()}]")
 
 #%%
 
