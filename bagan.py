@@ -15,6 +15,8 @@ import numpy as np
 import torchvision
 
 
+from sklearn.preprocessing import StandardScaler
+
 class Encoder(nn.Module):
     def __init__(self, input_dim, output_dim):
         super(Encoder, self).__init__()
@@ -44,8 +46,7 @@ class Decoder(nn.Module):
     def forward(self, x):
 
         return self.model(x)
-#%%
-
+"""
 class LatentVectorGenerator(nn.Module):
     def __init__(self, num_classes, latent_dim):
         super(LatentVectorGenerator, self).__init__()
@@ -84,6 +85,109 @@ class LatentVectorGenerator(nn.Module):
             sample = torch.distributions.MultivariateNormal(mean, covariance_matrix=cov).sample()
             z.append(sample)
         return torch.stack(z)
+"""
+
+"""
+class LatentVectorGenerator(nn.Module):
+    def __init__(self, num_classes, latent_dim):
+        super(LatentVectorGenerator, self).__init__()
+        self.num_classes = num_classes
+        self.latent_dim = latent_dim
+        
+        self.means = torch.zeros(num_classes, latent_dim)
+        self.covariances = torch.zeros(num_classes, latent_dim, latent_dim)
+
+    def fit(self, X, labels):
+        epsilon = 1e-5
+        for c in range(self.num_classes):
+            indices = torch.tensor((labels == c).nonzero()[0])
+            if indices.dim() > 1:  # nonzero의 출력이 2D 텐서인 경우
+                indices = indices[:, 0]  # 첫 번째 차원을 선택
+            
+            X_c = X[indices]
+            mean_c = torch.mean(X_c, axis=0)
+            self.means[c] = mean_c
+            
+            if X_c.shape[0] > 1:
+                cov_c = torch.tensor(np.cov(X_c.cpu().detach().numpy(), rowvar=False))
+            else:
+                cov_c = torch.zeros((self.latent_dim, self.latent_dim))
+                
+            cov_c += torch.eye(self.latent_dim) * epsilon  # Add epsilon to the diagonal
+            self.covariances[c] = cov_c
+
+    def sample(self, labels):
+        if np.isscalar(labels):
+            labels = [labels,]
+
+        z = []
+        for c in labels:
+            mean = self.means[c]
+            cov = self.covariances[c]
+            sample = torch.distributions.MultivariateNormal(mean, covariance_matrix=cov).sample()
+            z.append(sample)
+        return torch.stack(z)
+"""
+
+"""
+class LatentVectorGenerator(nn.Module):
+    def __init__(self, num_classes, latent_dim):
+        super(LatentVectorGenerator, self).__init__()
+        self.num_classes = num_classes
+        self.latent_dim = latent_dim
+        
+        self.means = torch.zeros(num_classes, latent_dim)
+        self.covariances = torch.zeros(num_classes, latent_dim, latent_dim)
+        self.X_cs = []
+
+    def fit(self, X, labels):
+        epsilon = 1e-5  # A small value to avoid zero eigenvalues
+        
+        for c in range(self.num_classes):
+            indices = torch.tensor((labels == c).nonzero()[0])
+            if indices.dim() > 1:  # nonzero의 출력이 2D 텐서인 경우
+                indices = indices[:, 0]  # 첫 번째 차원을 선택
+            
+            X_c = X[indices]
+            self.X_cs.append(X_c)
+            print(X_c.shape)
+            # Calculate mean
+            mean_c = torch.mean(X_c, axis=0)
+            self.means[c] = mean_c
+            
+            # Calculate covariance matrix
+            if X_c.shape[0] > 1:
+                cov_c = torch.tensor(np.cov(X_c.cpu().detach().numpy(), rowvar=False))
+                
+                # Singular Value Decomposition
+                u, s, v = torch.svd(cov_c)
+                s = torch.clamp(s, min=epsilon)  # Ensure eigenvalues are non-negative
+                
+                # Reconstruct the covariance matrix
+                cov_c = u @ torch.diag(s) @ v.t()
+                
+            else:
+                cov_c = torch.eye(self.latent_dim) * epsilon  # Use identity matrix if only one sample
+            
+            self.covariances[c] = cov_c
+
+    def sample(self, labels):
+        if np.isscalar(labels):
+            labels = [labels,]
+
+        z = []
+        for c in labels:
+            mean = self.means[c]
+            cov = self.covariances[c]
+            sample = torch.distributions.MultivariateNormal(mean, covariance_matrix=cov).sample()
+            z.append(sample)
+        return torch.stack(z)
+"""
+
+
+
+
+
 
 def torch_cov(m, rowvar=False):
     '''Estimate a covariance matrix given data.
@@ -117,6 +221,103 @@ def torch_cov(m, rowvar=False):
     mt = m.t()  # if complex: mt = m.t().conj()
     return fact * m.matmul(mt).squeeze()
 
+##
+"""
+def ensure_positive_semidefinite(cov_matrix, epsilon=1e-10):
+    eigenvalues, eigenvectors = torch.symeig(cov_matrix, eigenvectors=True)
+    eigenvalues = torch.clamp(eigenvalues, min=epsilon)  # Ensure all eigenvalues are positive
+    return eigenvectors @ torch.diag(eigenvalues) @ eigenvectors.transpose(-1, -2)
+
+
+def torch_cov1(m, rowvar=False):
+    if m.dim() > 2:
+        raise ValueError('m has more than 2 dimensions')
+    if m.dim() < 2:
+        m = m.view(1, -1)
+    if not rowvar and m.size(0) != 1:
+        m = m.t()
+    m -= torch.mean(m, dim=1, keepdim=True)
+    cov = m @ m.t() / (m.size(1) - 1)
+    
+    # Ensure the covariance matrix is positive semi-definite
+    cov = ensure_positive_semidefinite(cov)
+    
+    return cov
+
+"""
+##
+
+def ensure_positive_definite(cov_matrix, noise_factor=1e-6):
+    while True:
+        eigenvalues, _ = torch.symeig(cov_matrix)
+        if torch.min(eigenvalues) > 0:
+            break  # The matrix is positive definite, break the loop
+        cov_matrix += torch.eye(cov_matrix.size(0)) * noise_factor
+        noise_factor *= 10  # Increase the noise factor for the next iteration if needed
+    #cov_matrix[cov_matrix<0] = noise_factor
+
+    return cov_matrix
+
+def torch_cov2(m, rowvar=False):
+    if m.dim() > 2:
+        raise ValueError('m has more than 2 dimensions')
+    if m.dim() < 2:
+        m = m.view(1, -1)
+    if not rowvar and m.size(0) != 1:
+        m = m.t()
+    m -= torch.mean(m, dim=1, keepdim=True)
+    cov = m @ m.t() / (m.size(1) - 1)
+    
+    # Ensure the covariance matrix is positive definite
+    cov = ensure_positive_definite(cov)
+
+    return cov
+
+class LatentVectorGenerator(nn.Module):
+    def __init__(self, num_classes, latent_dim):
+        super(LatentVectorGenerator, self).__init__()
+        self.num_classes = num_classes
+        self.latent_dim = latent_dim
+        
+        self.means = torch.zeros(num_classes, latent_dim)
+        self.covariances = torch.zeros(num_classes, latent_dim, latent_dim)
+        self.X_cs = []
+
+    def fit(self, X, labels):
+        epsilon = 1e-5  # A small value to avoid zero eigenvalues
+        
+        for c in range(self.num_classes):
+            indices = torch.tensor((labels == c).nonzero()[0])
+            if indices.dim() > 1:  # nonzero의 출력이 2D 텐서인 경우
+                indices = indices[:, 0]  # 첫 번째 차원을 선택
+            
+            X_c = X[indices]
+            self.X_cs.append(X_c)
+            print(X_c.shape)
+            # Calculate mean
+            mean_c = torch.mean(X_c, axis=0)
+            self.means[c] = mean_c
+            
+            # Calculate covariance matrix
+            cov_c = torch_cov2(X_c)
+
+            self.covariances[c] = cov_c
+
+    def sample(self, labels):
+        if np.isscalar(labels):
+            labels = [labels,]
+
+        z = []
+        for c in labels:
+            mean = self.means[c]
+            cov = self.covariances[c]
+            sample = torch.distributions.MultivariateNormal(mean, covariance_matrix=cov).sample()
+            z.append(sample)
+        return torch.stack(z)
+
+
+
+
 # Encoder를 사용하여 잠재 벡터를 얻고, 이를 LatentVectorGenerator에 학습시킵니다.
 def train_latent_vector_generator(encoder, latent_vector_generator, data_loader, device):
     latent_vectors = []
@@ -134,7 +335,11 @@ def train_latent_vector_generator(encoder, latent_vector_generator, data_loader,
     latent_vectors = np.concatenate(latent_vectors)
     labels = np.concatenate(labels)
     
-    latent_vector_generator.fit(latent_vectors, labels)
+    # Standardize the latent vectors
+    scaler = StandardScaler()
+    latent_vectors = scaler.fit_transform(latent_vectors)
+    
+    latent_vector_generator.fit(torch.tensor(latent_vectors), labels)
 
 class Discriminator(nn.Module):
     def __init__(self, encoder, num_classes):
@@ -215,7 +420,7 @@ class Generator1(nn.Module):
         print(type(z))
         # z가 텐서의 리스트인 경우
         if isinstance(z, list) and all(isinstance(zi, torch.Tensor) for zi in z):
-            z = torch.stack(z).to(labels.device).float()
+            z = torch.stack(z).squeeze(1).to(labels.device).float()
         print(type(z))
 
         embedded_labels = self.embedding(labels)
@@ -237,7 +442,7 @@ class Generator1(nn.Module):
 lr = 0.0001
 num_epochs = 2
 input_dim = 28 * 28
-output_dim = 64
+output_dim = 50
 batch_size = 64
 #device = torch.device('cpu')
 
@@ -273,11 +478,11 @@ for epoch in range(num_epochs):
 #Initialize the GAN with the trained autoencoder weights
 
 num_classes = 10
-latent_dim = 64
+latent_dim = 50
 
 
 # LatentVectorGenerator 준비
-latent_vector_generator = LatentVectorGenerator(num_classes=num_classes, latent_dim=128).to(device)
+latent_vector_generator = LatentVectorGenerator(num_classes=num_classes, latent_dim=latent_dim*2).to(device)
 
 # LatentVectorGenerator 학습
 train_latent_vector_generator(autoencoder[0], latent_vector_generator, data_loader, device)
@@ -285,7 +490,7 @@ train_latent_vector_generator(autoencoder[0], latent_vector_generator, data_load
 discriminator = Discriminator(autoencoder[0], num_classes).to(device)
 #generator = Generator(autoencoder[1], latent_dim, num_classes).to(device)
 
-generator = Generator1(autoencoder[1], latent_vector_generator, latent_dim, num_classes).to(device)
+generator = Generator1(autoencoder[1], latent_vector_generator, num_classes = num_classes, latent_dim = latent_dim).to(device)
 
 #discriminator = Discriminator(autoencoder[0].state_dict(), strict=False)
 #generator = Generator(autoencoder[1].state_dict(), strict=False)
