@@ -24,7 +24,7 @@ class Encoder(nn.Module):
         self.model = nn.Sequential(
             nn.Linear(input_dim, 128),
             nn.LeakyReLU(0.2, inplace=True),
-            nn.Linear(128, output_dim*2)
+            nn.Linear(128, output_dim)
             )
 
 
@@ -37,7 +37,7 @@ class Decoder(nn.Module):
         super(Decoder, self).__init__()
 
         self.model = nn.Sequential(
-            nn.Linear(input_dim*2, 128),
+            nn.Linear(input_dim, 128),
             nn.LeakyReLU(0.2, inplace=True),
             nn.Linear(128, output_dim),
             nn.Sigmoid()
@@ -46,206 +46,7 @@ class Decoder(nn.Module):
     def forward(self, x):
 
         return self.model(x)
-"""
-class LatentVectorGenerator(nn.Module):
-    def __init__(self, num_classes, latent_dim):
-        super(LatentVectorGenerator, self).__init__()
-        self.num_classes = num_classes
-        self.latent_dim = latent_dim
-        
-        # means and covariances should be PyTorch tensors
-        self.means = torch.zeros(num_classes, latent_dim)
-        self.covariances = torch.zeros(num_classes, latent_dim, latent_dim)
 
-    def fit(self, X, labels):
-        for c in range(self.num_classes):
-            indices = (labels == c).nonzero()
-            # nonzero() 함수가 반환하는 값의 형태에 따라 적절하게 인덱싱
-            if isinstance(indices, tuple):
-                indices = indices[0]
-            X_c = torch.tensor(X[indices])
-            mean_c = torch.mean(X_c, axis=0)
-            cov_c = torch.tensor(np.cov(X_c, rowvar=False))
-            # 공분산 행렬의 대각선에 작은 값을 추가
-            cov_c += torch.eye(self.latent_dim) * 1e-6
-            self.means[c] = mean_c
-            self.covariances[c] = cov_c
-
-    def sample(self, labels):
-        if np.isscalar(labels):
-            labels = [labels,]
-        z = []
-        for c in labels:
-            mean = self.means[c]
-            cov = self.covariances[c]
-           # MultivariateNormal로부터 샘플링하는 동안 그라디언트를 계산하도록 설정
-            mean = mean.clone().detach().requires_grad_(True)  
-            cov = cov.clone().detach().requires_grad_(True)
-            
-            sample = torch.distributions.MultivariateNormal(mean, covariance_matrix=cov).sample()
-            z.append(sample)
-        return torch.stack(z)
-"""
-
-"""
-class LatentVectorGenerator(nn.Module):
-    def __init__(self, num_classes, latent_dim):
-        super(LatentVectorGenerator, self).__init__()
-        self.num_classes = num_classes
-        self.latent_dim = latent_dim
-        
-        self.means = torch.zeros(num_classes, latent_dim)
-        self.covariances = torch.zeros(num_classes, latent_dim, latent_dim)
-
-    def fit(self, X, labels):
-        epsilon = 1e-5
-        for c in range(self.num_classes):
-            indices = torch.tensor((labels == c).nonzero()[0])
-            if indices.dim() > 1:  # nonzero의 출력이 2D 텐서인 경우
-                indices = indices[:, 0]  # 첫 번째 차원을 선택
-            
-            X_c = X[indices]
-            mean_c = torch.mean(X_c, axis=0)
-            self.means[c] = mean_c
-            
-            if X_c.shape[0] > 1:
-                cov_c = torch.tensor(np.cov(X_c.cpu().detach().numpy(), rowvar=False))
-            else:
-                cov_c = torch.zeros((self.latent_dim, self.latent_dim))
-                
-            cov_c += torch.eye(self.latent_dim) * epsilon  # Add epsilon to the diagonal
-            self.covariances[c] = cov_c
-
-    def sample(self, labels):
-        if np.isscalar(labels):
-            labels = [labels,]
-
-        z = []
-        for c in labels:
-            mean = self.means[c]
-            cov = self.covariances[c]
-            sample = torch.distributions.MultivariateNormal(mean, covariance_matrix=cov).sample()
-            z.append(sample)
-        return torch.stack(z)
-"""
-
-"""
-class LatentVectorGenerator(nn.Module):
-    def __init__(self, num_classes, latent_dim):
-        super(LatentVectorGenerator, self).__init__()
-        self.num_classes = num_classes
-        self.latent_dim = latent_dim
-        
-        self.means = torch.zeros(num_classes, latent_dim)
-        self.covariances = torch.zeros(num_classes, latent_dim, latent_dim)
-        self.X_cs = []
-
-    def fit(self, X, labels):
-        epsilon = 1e-5  # A small value to avoid zero eigenvalues
-        
-        for c in range(self.num_classes):
-            indices = torch.tensor((labels == c).nonzero()[0])
-            if indices.dim() > 1:  # nonzero의 출력이 2D 텐서인 경우
-                indices = indices[:, 0]  # 첫 번째 차원을 선택
-            
-            X_c = X[indices]
-            self.X_cs.append(X_c)
-            print(X_c.shape)
-            # Calculate mean
-            mean_c = torch.mean(X_c, axis=0)
-            self.means[c] = mean_c
-            
-            # Calculate covariance matrix
-            if X_c.shape[0] > 1:
-                cov_c = torch.tensor(np.cov(X_c.cpu().detach().numpy(), rowvar=False))
-                
-                # Singular Value Decomposition
-                u, s, v = torch.svd(cov_c)
-                s = torch.clamp(s, min=epsilon)  # Ensure eigenvalues are non-negative
-                
-                # Reconstruct the covariance matrix
-                cov_c = u @ torch.diag(s) @ v.t()
-                
-            else:
-                cov_c = torch.eye(self.latent_dim) * epsilon  # Use identity matrix if only one sample
-            
-            self.covariances[c] = cov_c
-
-    def sample(self, labels):
-        if np.isscalar(labels):
-            labels = [labels,]
-
-        z = []
-        for c in labels:
-            mean = self.means[c]
-            cov = self.covariances[c]
-            sample = torch.distributions.MultivariateNormal(mean, covariance_matrix=cov).sample()
-            z.append(sample)
-        return torch.stack(z)
-"""
-
-
-
-
-
-
-def torch_cov(m, rowvar=False):
-    '''Estimate a covariance matrix given data.
-
-    Covariance indicates the level to which two variables vary together.
-    If we examine N-dimensional samples, `X = [x_1, x_2, ... x_N]^T`,
-    then the covariance matrix element `C_{ij}` is the covariance of
-    `x_i` and `x_j`. The element `C_{ii}` is the variance of `x_i`.
-
-    Args:
-        m: A 1-D or 2-D array containing multiple variables and observations.
-            Each row of `m` represents a variable, and each column a single
-            observation of all those variables.
-        rowvar: If `rowvar` is True, then each row represents a
-            variable, with observations in the columns. Otherwise, the relationship
-            is transposed: each column represents a variable, while the rows
-            contain observations.
-
-    Returns:
-        The covariance matrix of the variables.
-    '''
-    if m.dim() > 2:
-        raise ValueError('m has more than 2 dimensions')
-    if m.dim() < 2:
-        m = m.view(1, -1)
-    if not rowvar and m.size(0) != 1:
-        m = m.t()
-    # m = m.type(torch.double)  # Uncomment this line if m is not a double tensor
-    fact = 1.0 / (m.size(1) - 1)
-    m -= torch.mean(m, dim=1, keepdim=True)
-    mt = m.t()  # if complex: mt = m.t().conj()
-    return fact * m.matmul(mt).squeeze()
-
-##
-"""
-def ensure_positive_semidefinite(cov_matrix, epsilon=1e-10):
-    eigenvalues, eigenvectors = torch.symeig(cov_matrix, eigenvectors=True)
-    eigenvalues = torch.clamp(eigenvalues, min=epsilon)  # Ensure all eigenvalues are positive
-    return eigenvectors @ torch.diag(eigenvalues) @ eigenvectors.transpose(-1, -2)
-
-
-def torch_cov1(m, rowvar=False):
-    if m.dim() > 2:
-        raise ValueError('m has more than 2 dimensions')
-    if m.dim() < 2:
-        m = m.view(1, -1)
-    if not rowvar and m.size(0) != 1:
-        m = m.t()
-    m -= torch.mean(m, dim=1, keepdim=True)
-    cov = m @ m.t() / (m.size(1) - 1)
-    
-    # Ensure the covariance matrix is positive semi-definite
-    cov = ensure_positive_semidefinite(cov)
-    
-    return cov
-
-"""
-##
 
 def ensure_positive_definite(cov_matrix, noise_factor=1e-6):
     while True:
@@ -357,8 +158,7 @@ class Discriminator(nn.Module):
         # 인코더의 가중치를 복사
         self.model[0].weight.data = encoder.model[0].weight.data.clone()
         self.model[0].bias.data = encoder.model[0].bias.data.clone()
-        self.model[2].weight.data = encoder.model[2].weight.data.clone()
-        self.model[2].bias.data = encoder.model[2].bias.data.clone()
+
 
     def forward(self, x):
         output = self.model(x)
@@ -398,9 +198,9 @@ class Generator1(nn.Module):
         self.latent_vector_generator = latent_vector_generator
         # 디코더의 구조를 그대로 사용하고 가중치를 복사
         self.model = nn.Sequential(
-            nn.Linear(latent_dim + latent_dim, decoder.model[0].out_features),
+            nn.Linear(latent_dim + latent_dim, latent_dim*2),
             nn.LeakyReLU(0.2, inplace=True),
-            nn.Linear(decoder.model[0].out_features, decoder.model[2].out_features),
+            nn.Linear(latent_dim*2, decoder.model[2].out_features),
             nn.Sigmoid()
         )
         
@@ -411,36 +211,22 @@ class Generator1(nn.Module):
         self.model[2].bias.data = decoder.model[2].bias.data.clone()
 
     def forward(self, labels):
-        labels_np = labels.cpu().numpy()
-        z = []
-        for label in labels_np:
-            z_sample = self.latent_vector_generator.sample(label)
-            z.append(z_sample)
-        #z = torch.tensor(z, device=labels.device).float()
-        print(type(z))
-        # z가 텐서의 리스트인 경우
-        if isinstance(z, list) and all(isinstance(zi, torch.Tensor) for zi in z):
-            z = torch.stack(z).squeeze(1).to(labels.device).float()
-        print(type(z))
-
+        z = self.latent_vector_generator.sample(labels)
+        z = z.to(labels.device).float()  # Ensure z is on the correct device
+        
         embedded_labels = self.embedding(labels)
         z = z.squeeze(1)
-        print(f"Shape of z: {z.shape}")
-        print(f"Shape of embedded_labels: {embedded_labels.shape}")
-
         input_vector = torch.cat([z, embedded_labels], dim=1)
 
-        print("Shape of input_vector:", input_vector.shape)
-
-        # 첫 번째 Linear layer의 weight shape를 출력
-        print("Shape of the first layer weight:", self.model[0].weight.shape)
-
-
-        return self.model(input_vector)
+        # 디버깅 출력 추가
+        #print(f"Input vector shape: {input_vector.shape}")
+        #print(f"Weight shape of the first layer: {self.model[0].weight.shape}")
+        
+        return self.model(z)
 #%%
 
 lr = 0.0001
-num_epochs = 2
+num_epochs = 10
 input_dim = 28 * 28
 output_dim = 50
 batch_size = 64
@@ -477,12 +263,15 @@ for epoch in range(num_epochs):
 #%%
 #Initialize the GAN with the trained autoencoder weights
 
+
+lr = 0.0005
+
 num_classes = 10
 latent_dim = 50
 
 
 # LatentVectorGenerator 준비
-latent_vector_generator = LatentVectorGenerator(num_classes=num_classes, latent_dim=latent_dim*2).to(device)
+latent_vector_generator = LatentVectorGenerator(num_classes=num_classes, latent_dim=latent_dim).to(device)
 
 # LatentVectorGenerator 학습
 train_latent_vector_generator(autoencoder[0], latent_vector_generator, data_loader, device)
@@ -496,8 +285,8 @@ generator = Generator1(autoencoder[1], latent_vector_generator, num_classes = nu
 #generator = Generator(autoencoder[1].state_dict(), strict=False)
 
 
-d_optimizer = torch.optim.Adam(discriminator.parameters(), lr=lr)
-g_optimizer = torch.optim.Adam(generator.parameters(), lr=lr)
+d_optimizer = torch.optim.Adam(discriminator.parameters(), lr=lr, betas=(0.5, 0.999))
+g_optimizer = torch.optim.Adam(generator.parameters(), lr=lr, betas=(0.5, 0.999))
 
 criterion = nn.BCELoss()
 criterion1 = nn.CrossEntropyLoss()
@@ -533,7 +322,9 @@ for epoch in range(num_epochs):
         
         # 생성자 훈련
         g_optimizer.zero_grad()
-        
+
+        gen_labels = torch.LongTensor(np.random.randint(0, 9, batch_size)).to(device)
+        fake_images = generator(gen_labels).to(device)
         outputs = discriminator(fake_images)
         g_loss = criterion1(outputs, torch.full((len(fake_images),), num_classes).to(device))
         
@@ -549,9 +340,9 @@ import matplotlib.pyplot as plt
 
 
 with torch.no_grad():
-    z = torch.randn(batch_size, latent_dim).to(device)  # 64개의 랜덤 벡터 생성
-    gen_labels = torch.LongTensor(np.random.randint(0, 9, z.shape[0])).to(device)
-    fake_images = generator(z, gen_labels).detach().cpu()
+    #z = torch.randn(batch_size, latent_dim).to(device)  # 64개의 랜덤 벡터 생성
+    gen_labels = torch.LongTensor(np.random.randint(0, 9, batch_size)).to(device)
+    fake_images = generator(gen_labels).detach().cpu()
     fake_images = fake_images.reshape(fake_images.shape[0], 1, 28, 28)
 
 # 이미지 출력
@@ -560,7 +351,7 @@ for i in range(8):
     axes[i].imshow(torchvision.utils.make_grid(fake_images[i], normalize=True).permute(1, 2, 0))
     axes[i].axis('off')
 plt.show()
-#print(gen_labels[:8])
+print(gen_labels[:8])
 
 
 
