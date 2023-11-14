@@ -71,11 +71,9 @@ class Discriminator(nn.Module):
             nn.LeakyReLU(0.2, inplace=True),
             # 상태: 64 x 16 x 16
             nn.Conv2d(64, 128, 4, 2, 1, bias=False),
-            nn.BatchNorm2d(128),
             nn.LeakyReLU(0.2, inplace=True),
             # 상태: 128 x 8 x 8
             nn.Conv2d(128, 256, 4, 2, 1, bias=False),
-            nn.BatchNorm2d(256),
             nn.LeakyReLU(0.2, inplace=True),
             # 상태: 256 x 4 x 4
             nn.Flatten(),
@@ -84,7 +82,6 @@ class Discriminator(nn.Module):
 
     def forward(self, x):
         return self.model(x)
-
 def cal_gradient(t_gradients, t_lambda1):
 
     # gradients를 재구성하여 각 배치의 데이터를 하나의 행으로 만듭니다.
@@ -154,7 +151,7 @@ for epoch in range(num_epochs):
 
             gradient_penalty = cal_gradient(gradients, lambda1)
 
-            d_loss = -torch.mean(d_loss_real) + torch.mean(d_loss_fake) + gradient_penalty
+            d_loss = -torch.mean(d_loss_real) + torch.mean(d_loss_fake) + (10*gradient_penalty)
 
             d_loss.backward()
             d_optimizer.step()
