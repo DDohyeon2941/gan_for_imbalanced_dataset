@@ -62,6 +62,7 @@ class Generator(nn.Module):
         return self.model(z)
 
 # 판별자(Discriminator) 정의
+# batch normalization 제거
 class Discriminator(nn.Module):
     def __init__(self):
         super(Discriminator, self).__init__()
@@ -72,11 +73,9 @@ class Discriminator(nn.Module):
             nn.LeakyReLU(0.2, inplace=True),
             # 상태: 64 x 16 x 16
             nn.Conv2d(64, 128, 4, 2, 1, bias=False),
-            nn.BatchNorm2d(128),
             nn.LeakyReLU(0.2, inplace=True),
             # 상태: 128 x 8 x 8
             nn.Conv2d(128, 256, 4, 2, 1, bias=False),
-            nn.BatchNorm2d(256),
             nn.LeakyReLU(0.2, inplace=True),
             # 상태: 256 x 4 x 4
             nn.Flatten(),
@@ -85,6 +84,7 @@ class Discriminator(nn.Module):
 
     def forward(self, x):
         return self.model(x)
+
 
 def cal_gradient(t_gradients, t_lambda1):
 
@@ -195,7 +195,7 @@ for epoch in range(num_epochs):
 
             #output_diff = torch.abs(d_loss_fake_min  - d_loss_fake_maj)
 
-            d_loss = -torch.mean(d_loss_real) + (1*torch.mean(d_loss_fake_min)) + gradient_penalty_min + (0*torch.mean(d_loss_fake_maj))
+            d_loss = -torch.mean(d_loss_real) + (1*torch.mean(d_loss_fake_min)) + (10* gradient_penalty_min) + (0*torch.mean(d_loss_fake_maj))
 
             #d_loss = 0.6 * (-torch.mean(d_loss_real) + torch.mean(d_loss_fake_min) + gradient_penalty_min) + 0.4 * torch.mean(d_loss_fake_maj)
 
