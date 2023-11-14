@@ -131,7 +131,7 @@ z_dim = 100
 img_dim = 32*32
 lr = 0.0001
 #batch_size = 128
-num_epochs = 300
+num_epochs = 500
 lambda1 = 20
 lambda2 = 0.5
 
@@ -290,7 +290,7 @@ plt.legend()
 
 #%%
 
-torch.save(generator.state_dict(), 'generator_prop.pth')
+#torch.save(generator.state_dict(), 'generator_ori_imb.pth')
 
 
 
