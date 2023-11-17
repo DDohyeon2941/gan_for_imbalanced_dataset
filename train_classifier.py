@@ -66,7 +66,7 @@ class ResNet(nn.Module):
     def __init__(self, num_classes=2):
         super(ResNet, self).__init__()
         # ResNet50을 불러옵니다. pretrained=True로 하면 사전 학습된 가중치를 사용합니다.
-        self.model = models.resnet101(pretrained=False)
+        self.model = models.resnet50(pretrained=False)
         
         # ResNet의 마지막 선형 레이어를 교체합니다. ResNet50의 경우 2048개의 특성이 있습니다.
         num_ftrs = self.model.fc.in_features
@@ -149,7 +149,7 @@ criterion = nn.CrossEntropyLoss()
 optimizer = torch.optim.Adam(resnet_model.parameters(), lr=0.0001)
 
 # 학습 과정
-num_epochs = 20  # 학습 에포크 수
+num_epochs = 10  # 학습 에포크 수
 
 for epoch in range(num_epochs):
     running_loss = 0.0
@@ -186,15 +186,16 @@ test_binary_dataset = BinaryCIFAR10Dataset(test_dataset,
                                            minority_class=5,
                                            majority_class=3)
 
-test_loader = DataLoader(test_binary_dataset, batch_size=64, shuffle=False)
+test_loader = DataLoader(test_binary_dataset, batch_size=64, shuffle=True)
 #%%
 
-from sklearn.metrics import classification_report, accuracy_score
+from sklearn.metrics import classification_report, accuracy_score,confusion_matrix, roc_auc_score
 
 resnet_model.eval()  # 모델을 평가 모드로 설정합니다.
 
 all_labels = []
 all_preds = []
+all_probs = []
 
 # 테스트 데이터에 대한 예측 수행
 with torch.no_grad():
@@ -203,10 +204,15 @@ with torch.no_grad():
         
         outputs = resnet_model(inputs)
         _, predicted = torch.max(outputs, 1)
-        
+        probabilities = torch.softmax(outputs, dim=1)[:, 1]  # 이진 분류의 경우, 클래스 1에 대한 확률을 선택합니다.
+
+
         all_labels.extend(labels.cpu().numpy())
         all_preds.extend(predicted.cpu().numpy())
+        all_probs.extend(probabilities.cpu().numpy())
 
 # 성능 측정
 print(classification_report(all_labels, all_preds))
 print(f'Accuracy: {accuracy_score(all_labels, all_preds):.4f}')
+print(f"AUROC: {roc_auc_score(all_labels, all_probs):.4f}")
+print(confusion_matrix(all_labels, all_preds))
