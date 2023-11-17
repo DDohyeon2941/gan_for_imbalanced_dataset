@@ -155,8 +155,8 @@ def generate_images(generator, z_dim= 100, num_images=1000):
 
 #%%
 if __name__ == '__main__':
-    trained_generator = train_wgan(param1=1.0, param2=0.0)
-    generated_images = generate_images(trained_generator, num_images=5000)
+    trained_generator = train_wgan(param1=0.8, param2=0.0)
+    generated_images = generate_images(trained_generator, num_images=5500)
     train_loader = make_concated_dataloader(generated_images)
 
     # 모델 인스턴스 생성

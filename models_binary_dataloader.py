@@ -64,7 +64,7 @@ def get_labels_from_concat_dataset(concat_dataset):
         labels += [label for _, label in dataset]
     return np.array(labels)
 
-def make_concated_dataloader(generated_images,
+def make_sampler_concated_dataloader(generated_images,
                              data_dir='./data',
                              minority_class=5,
                              majority_class=3,
@@ -107,6 +107,45 @@ def make_concated_dataloader(generated_images,
     combined_loader = DataLoader(combined_dataset, batch_size=batch_size, sampler=sampler)
 
     return combined_loader
+
+
+def make_concated_dataloader(generated_images,
+                             data_dir='./data',
+                             minority_class=5,
+                             majority_class=3,
+                             minority_size=500,
+                             batch_size=64):
+    # cifar10 데이터셋 로딩
+    train_dataset = torchvision.datasets.CIFAR10(root=data_dir, train=True, download=False)
+    
+    
+    # 불균형 이진 분류용 데이터셋 생성
+    transform = transforms.Compose([
+            transforms.ToTensor(),
+            transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
+        ])
+    
+    
+    imbalanced_binary_dataset = ImbalancedBinaryCIFAR10Dataset(train_dataset,
+                                                             transform=transform,
+                                                             minority_class=minority_class,
+                                                             majority_class=majority_class,
+                                                             minority_size=minority_size)
+    fake_labels = torch.ones(generated_images.size(0), dtype=torch.long)
+    # TensorDataset 생성
+    generated_dataset = TensorDataset(generated_images, fake_labels)
+    combined_dataset = ConcatDataset([imbalanced_binary_dataset, generated_dataset])
+
+
+    combined_loader = DataLoader(combined_dataset, batch_size=batch_size, shuffle=True)
+
+    return combined_loader
+
+
+
+
+
+
 
 def load_test_loader(data_dir='./data', minority_class=5, majority_class=3, batch_size=64):
     transform = transforms.Compose([
