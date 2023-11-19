@@ -27,7 +27,16 @@ GAN 학습부터, 오버샘플링, 분류자학습까지 한번에 진행하는 
 
 
 
-def train_wgan(data_dir = './data', minority_class=5, minority_size=500, param1=0.65, param2=0.2, batch_size=64):
+def train_wgan(data_dir = './data',
+               minority_class=5,
+               minority_size=500,
+               param1=0.65,
+               param2=0.2,
+               batch_size=64,
+               num_epochs=1000,
+               z_dim=100,
+               lr=0.0001):
+
 
     transform = transforms.Compose([
         transforms.ToTensor(),
@@ -44,10 +53,6 @@ def train_wgan(data_dir = './data', minority_class=5, minority_size=500, param1=
 
 
     # 하이퍼파라미터
-    z_dim = 100
-    lr = 0.0001
-    num_epochs = 500
-    lambda1 = 20
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     
@@ -72,8 +77,8 @@ def train_wgan(data_dir = './data', minority_class=5, minority_size=500, param1=
 
     
     ###
-    loss_dict = {'d_loss':[], 'g_loss':[]}
-    
+    loss_dict = {'d_loss':[], 'g_loss':[],'grad':[]}
+
     for epoch in range(num_epochs):
         for i, (real_data, _) in enumerate(minority_loader):
             #real_data = real_data.view(real_data.size(0),-1).to(device)
@@ -101,8 +106,9 @@ def train_wgan(data_dir = './data', minority_class=5, minority_size=500, param1=
 
                 gradients_min = grad(outputs=pred_hat_min, inputs=x_hat, grad_outputs=torch.ones(pred_hat_min.size()).to(device),
                                                  create_graph=True, retain_graph=True, only_inputs=True)[0]
+                loss_dict['grad'].append(gradients_min.detach().cpu())
 
-                gradient_penalty_min = cal_gradient(gradients_min, lambda1)
+                gradient_penalty_min = cal_gradient(gradients_min)
 
                 output_diff = torch.abs(d_loss_fake_min  - d_loss_fake_maj)
     
@@ -134,44 +140,42 @@ def train_wgan(data_dir = './data', minority_class=5, minority_size=500, param1=
         if epoch % 10 == 0:
             show_generated_imgs(generator, z_dim, device)
 
-    return generator
+    return generator, loss_dict
 
 def generate_images(generator, z_dim= 100, num_images=1000):
-    
+
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    
-
     # 이미지 생성 및 저장
-
     generator.eval() # 생성자를 평가 모드로 설정
     with torch.no_grad(): # 그라디언트 계산을 하지 않음
         z = torch.randn(num_images, z_dim, 1, 1, device=device)
         generated_images = generator(z).detach().cpu()
-
     return generated_images
-    
-
 
 
 #%%
 if __name__ == '__main__':
-    trained_generator = train_wgan(param1=0.8, param2=0.0)
-    generated_images = generate_images(trained_generator, num_images=5500)
-    train_loader = make_concated_dataloader(generated_images)
+    trained_generator, loss_dict1 = train_wgan(param1=0.8, param2=0.5, num_epochs=200, z_dim=128)
 
-    # 모델 인스턴스 생성
-    resnet_model = ResNet(num_classes=2)  # 2개의 클래스가 있다고 가정
+    #sum([(loss_dict1['grad'][xx]>1).sum() for xx in range(len(loss_dict1['grad']))])
+    generated_images = generate_images(trained_generator, z_dim=128, num_images=5500)
+    train_loader = make_concated_dataloader(generated_images, batch_size=128)
 
     # 이 모델을 GPU로 이동
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-    resnet_model = resnet_model.to(device)
+
+
+    # 모델 인스턴스 생성
+    resnet_model = nn.DataParallel(ResNet(num_classes=2))  # 2개의 클래스가 있다고 가정
+    resnet_model.to(device)
+
 
     # 손실 함수와 옵티마이저 정의
     criterion = nn.CrossEntropyLoss()
     optimizer = torch.optim.Adam(resnet_model.parameters(), lr=0.0001)
 
     # 학습 과정
-    num_epochs = 10  # 학습 에포크 수
+    num_epochs = 20  # 학습 에포크 수
 
     for epoch in range(num_epochs):
         running_loss = 0.0
@@ -198,7 +202,7 @@ if __name__ == '__main__':
 
     print("================test==========================================")
 
-    test_loader = load_test_loader()
+    test_loader = load_test_loader(batch_size=128)
     resnet_model.eval()  # 모델을 평가 모드로 설정합니다.
 
     all_labels = []

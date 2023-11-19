@@ -64,7 +64,7 @@ class Discriminator(nn.Module):
     def forward(self, x):
         return self.model(x)
 
-def cal_gradient(t_gradients, t_lambda1):
+def cal_gradient(t_gradients):
 
     # gradients를 재구성하여 각 배치의 데이터를 하나의 행으로 만듭니다.
     gradients_reshaped = t_gradients.view(t_gradients.size()[0], -1)
@@ -74,7 +74,7 @@ def cal_gradient(t_gradients, t_lambda1):
     
     # 그래디언트 페널티 계산
     deviations = gradient_norms - 1
-    gradient_penalty = t_lambda1 * (deviations ** 2).mean()
+    gradient_penalty = (deviations ** 2).mean()
 
     return gradient_penalty
 

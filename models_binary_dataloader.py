@@ -161,5 +161,5 @@ def load_test_loader(data_dir='./data', minority_class=5, majority_class=3, batc
                                                minority_class=minority_class,
                                                majority_class=majority_class)
 
-    test_loader = DataLoader(test_binary_dataset, batch_size=batch_size, shuffle=True)
+    test_loader = DataLoader(test_binary_dataset, batch_size=batch_size, shuffle=False)
     return test_loader
