@@ -68,7 +68,7 @@ def train_wgan(data_dir = './data',
     
     
     discriminator2 = nn.DataParallel(Discriminator())
-    discriminator2.load_state_dict(torch.load('discriminator.pth'))
+    discriminator2.load_state_dict(torch.load('discriminator_cifar10_car.pth'))
     discriminator2.to(device)
     
     
@@ -155,11 +155,11 @@ def generate_images(generator, z_dim= 100, num_images=1000):
 
 #%%
 if __name__ == '__main__':
-    trained_generator, loss_dict1 = train_wgan(param1=0.8, param2=0.5, num_epochs=200, z_dim=128)
+    trained_generator, loss_dict1 = train_wgan(param1=0.9, param2=0.5, num_epochs=1000, z_dim=128, minority_class=9, minority_size = 300)
 
     #sum([(loss_dict1['grad'][xx]>1).sum() for xx in range(len(loss_dict1['grad']))])
     generated_images = generate_images(trained_generator, z_dim=128, num_images=5500)
-    train_loader = make_concated_dataloader(generated_images, batch_size=128)
+    train_loader = make_concated_dataloader(generated_images, batch_size=128, majority_class=1, minority_class=9)
 
     # 이 모델을 GPU로 이동
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -175,7 +175,7 @@ if __name__ == '__main__':
     optimizer = torch.optim.Adam(resnet_model.parameters(), lr=0.0001)
 
     # 학습 과정
-    num_epochs = 20  # 학습 에포크 수
+    num_epochs = 10  # 학습 에포크 수
 
     for epoch in range(num_epochs):
         running_loss = 0.0
@@ -202,7 +202,7 @@ if __name__ == '__main__':
 
     print("================test==========================================")
 
-    test_loader = load_test_loader(batch_size=128)
+    test_loader = load_test_loader(batch_size=128, majority_class=1, minority_class=9)
     resnet_model.eval()  # 모델을 평가 모드로 설정합니다.
 
     all_labels = []
