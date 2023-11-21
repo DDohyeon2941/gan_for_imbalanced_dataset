@@ -155,7 +155,7 @@ def generate_images(generator, z_dim= 100, num_images=1000):
 
 #%%
 if __name__ == '__main__':
-    trained_generator, loss_dict1 = train_wgan(param1=0.9, param2=0.5, num_epochs=1000, z_dim=128, minority_class=9, minority_size = 300)
+    trained_generator, loss_dict1 = train_wgan(param1=0.95, param2=0.1, num_epochs=300, z_dim=128, minority_class=9, minority_size = 300, lr=0.0003)
 
     #sum([(loss_dict1['grad'][xx]>1).sum() for xx in range(len(loss_dict1['grad']))])
     generated_images = generate_images(trained_generator, z_dim=128, num_images=5500)
