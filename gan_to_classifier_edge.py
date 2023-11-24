@@ -19,6 +19,38 @@ from models_classifier import ResNet
 from models_binary_dataloader import make_concated_dataloader, load_test_loader
 from sklearn.metrics import classification_report, accuracy_score,confusion_matrix, roc_auc_score
 
+import torch.nn.functional as F
+
+def extract_edges(images):
+    # Sobel 필터 정의
+    sobel_x = torch.tensor([[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]], dtype=torch.float32).view(1, 1, 3, 3).to(images.device)
+    sobel_y = torch.tensor([[-1, -2, -1], [0, 0, 0], [1, 2, 1]], dtype=torch.float32).view(1, 1, 3, 3).to(images.device)
+
+    # 이미지 채널 수 확인 (예: RGB 이미지인 경우 3)
+    num_channels = images.shape[1]
+
+    # 모든 채널에 대해 Sobel 필터 적용
+    edges_x = F.conv2d(images, sobel_x.repeat(num_channels, 1, 1, 1), padding=1, groups=num_channels)
+    edges_y = F.conv2d(images, sobel_y.repeat(num_channels, 1, 1, 1), padding=1, groups=num_channels)
+
+    # 결과의 크기 계산
+    edges = torch.sqrt(edges_x ** 2 + edges_y ** 2)
+
+    return edges
+
+def edge_loss(fake_images, real_images):
+
+    # Edge Loss
+    fake_edges = extract_edges(fake_images.detach())
+    real_edges = extract_edges(real_images.detach())
+    edge_diff = torch.abs(fake_edges - real_edges)
+
+    # 로그 변환 적용 (음수 값 방지를 위해 작은 상수 epsilon 추가)
+    epsilon = 1e-8
+    edge_loss = torch.log(edge_diff + epsilon)
+
+    #print(torch.mean(edge_loss))
+    return torch.mean(edge_loss)
 
 """
 GAN 학습부터, 오버샘플링, 분류자학습까지 한번에 진행하는 모듈
@@ -38,6 +70,7 @@ def train_wgan(data_dir = './data',
                minority_size=500,
                param1=0.65,
                param2=0.2,
+               param3=0.0,
                batch_size=64,
                num_epochs=1000,
                z_dim=100,
@@ -137,8 +170,8 @@ def train_wgan(data_dir = './data',
             output_min = discriminator1(fake_images)
             output_maj = discriminator2(fake_images)
     
-            g_loss = -(param1*torch.mean(output_min)) - ((1-param1)*torch.mean(output_maj))
-    
+            e_loss = edge_loss(fake_images, real_data)
+            g_loss = -(param1*torch.mean(output_min)) - ((1-param1)*torch.mean(output_maj)) - (param3*e_loss)
             g_loss.backward()
             g_optimizer.step()
     
@@ -165,10 +198,9 @@ def generate_images(generator, z_dim= 100, num_images=1000):
 
 #%%
 if __name__ == '__main__':
-    trained_generator, loss_dict1 = train_wgan(param1=1.0, param2=0.0, num_epochs=500, z_dim=128, minority_class=9, minority_size = 300, lr=0.0005)
-
+    trained_generator, loss_dict1 = train_wgan(param1=0.9, param2=0.0, param3=0.0000, num_epochs=500, z_dim=128, minority_class=9, minority_size = 600, lr=0.001)
     #sum([(loss_dict1['grad'][xx]>1).sum() for xx in range(len(loss_dict1['grad']))])
-    generated_images = generate_images(trained_generator, z_dim=128, num_images=5500)
+    generated_images = generate_images(trained_generator, z_dim=128, num_images=5400)
     train_loader = make_concated_dataloader(generated_images, batch_size=128, majority_class=1, minority_class=9)
 
     # 이 모델을 GPU로 이동
@@ -185,7 +217,7 @@ if __name__ == '__main__':
     optimizer = torch.optim.Adam(resnet_model.parameters(), lr=0.0001)
 
     # 학습 과정
-    num_epochs = 10  # 학습 에포크 수
+    num_epochs = 15  # 학습 에포크 수
 
     for epoch in range(num_epochs):
         running_loss = 0.0
