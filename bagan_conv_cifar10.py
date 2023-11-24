@@ -13,9 +13,9 @@ import torchvision.datasets as datasets
 import torchvision.transforms as transforms
 import numpy as np
 import torchvision
+from torchvision.utils import make_grid
+import matplotlib.pyplot as plt
 
-
-from sklearn.preprocessing import StandardScaler
 
 # 인코더 클래스
 class Encoder(nn.Module):
@@ -207,6 +207,29 @@ class Generator(nn.Module):
         z = z.squeeze(1)
         z = z.view(z.size(0), -1, 4, 4)
         return self.decoder(z)
+
+
+def show_generated_imgs(generator, device, num_images=64):
+    # 잠재 벡터 z 생성
+    z = torch.LongTensor(np.random.randint(0,9, num_images)).to(device)
+    
+    # 이미지 생성
+    generator.eval() # 생성자를 평가 모드로 설정
+    with torch.no_grad(): # 그라디언트 계산을 하지 않음
+        fake_images = generator(z).detach().cpu()
+    generator.train() # 생성자를 훈련 모드로 되돌림
+
+    # 이미지의 픽셀 값을 [0, 1] 범위로 정규화
+    fake_images = make_grid(fake_images, normalize=True, nrow=int(np.sqrt(num_images)))
+    
+    # 이미지 시각화
+    plt.figure(figsize=(8, 8))
+    plt.imshow(np.transpose(fake_images.numpy(), (1, 2, 0)))
+    plt.axis('off')
+    plt.show()
+
+
+
 #%%
 
 lr = 0.0001
@@ -249,7 +272,7 @@ for epoch in range(num_epochs):
 #%%
 
 lr = 0.0002
-num_epochs = 1
+num_epochs = 5
 num_classes = 10
 latent_dim = 256*4*4
 #batch_size = 128
@@ -324,6 +347,10 @@ for epoch in range(num_epochs):
         loss_dict['d_loss'].append(d_loss.item())
         loss_dict['g_loss'].append(g_loss.item())
         print(f"[Epoch {epoch}/{num_epochs}] [Batch {i}/{len(data_loader)}] [D loss: {d_loss.item()}] [G loss: {g_loss.item()}]")
+    if epoch % 1 == 0:
+        show_generated_imgs(generator, device)
+
+
 #%%
 
 import matplotlib.pyplot as plt
