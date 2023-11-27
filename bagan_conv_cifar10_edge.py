@@ -1,9 +1,11 @@
 # -*- coding: utf-8 -*-
 """
-Created on Mon Nov  6 11:05:21 2023
+Created on Mon Nov 27 15:53:33 2023
 
 @author: dohyeon
 """
+
+
 
 import torch
 import torch.nn as nn
@@ -15,6 +17,9 @@ import numpy as np
 import torchvision
 from torchvision.utils import make_grid
 import matplotlib.pyplot as plt
+from models_binary_dataloader import BinaryCIFAR10Dataset
+import torch.nn.functional as F
+
 
 
 # 인코더 클래스
@@ -37,25 +42,87 @@ class Encoder(nn.Module):
     def forward(self, x):
         return self.model(x)
 
-# 디코더 클래스
+
 class Decoder(nn.Module):
-    def __init__(self):
+    def __init__(self, initial_size=8, edge_dim=32):
         super(Decoder, self).__init__()
+        self.initial_size = initial_size
+
+        # 첫 번째 ConvTranspose2d는 잠재 벡터를 처리
+        self.initial_conv = nn.ConvTranspose2d(64, 128, kernel_size=4, stride=2, padding=1)
+
+        # 엣지 맵을 처리하는 Conv2d 레이어 (입력 채널 수를 3으로 변경)
+        self.edge_conv = nn.Conv2d(3, 128, kernel_size=3, padding=1)
+
+        # 나머지 네트워크 구조
         self.model = nn.Sequential(
-            nn.ConvTranspose2d(256, 128, kernel_size=4, stride=2, padding=1),
             nn.BatchNorm2d(128),
-            nn.ReLU(inplace=True),
-            nn.ConvTranspose2d(128, 64, kernel_size=4, stride=2, padding=1),
+            nn.ReLU(True),
+            
+            nn.Upsample(scale_factor=2),
+            nn.Conv2d(128, 128, kernel_size=3, padding=1),
+            nn.BatchNorm2d(128),
+            nn.ReLU(True),
+
+            nn.Upsample(scale_factor=2),
+            nn.Conv2d(128, 64, kernel_size=3, padding=1),
             nn.BatchNorm2d(64),
-            nn.ReLU(inplace=True),
-            nn.ConvTranspose2d(64, 3, kernel_size=4, stride=2, padding=1),
+            nn.ReLU(True),
+
+            nn.Conv2d(64, 3, kernel_size=3, stride=2, padding=1),
             nn.Tanh()
-            # 추가적인 레이어들을 여기에 추가하세요
         )
 
-    def forward(self, x):
-        return self.model(x)
+    def forward(self, z, edge_map):
+        # 잠재 벡터 처리
+        z = z.view(z.size(0), 64, self.initial_size, self.initial_size)
+        z = self.initial_conv(z)
 
+        # 엣지 맵 처리
+        edge_map = edge_map.expand(-1, 3, -1, -1)  # 엣지 맵을 3채널로 확장
+        edge_map = F.interpolate(edge_map, size=z.size()[2:], mode='bilinear', align_corners=False)  # 크기 조정
+        edge_map = self.edge_conv(edge_map)
+        #print(z.shape, edge_map.shape)
+        # 잠재 벡터와 엣지 맵 결합
+        combined = z + edge_map  # 여기서는 단순히 합산을 사용
+
+        # 나머지 네트워크를 통해 이미지 생성
+        img = self.model(combined)
+        return img
+
+def sobel_edge_detection(image_batch):
+    # 소벨 커널 정의
+    sobel_x = torch.tensor([[-1., 0., 1.], [-2., 0., 2.], [-1., 0., 1.]], dtype=torch.float32).view(1, 1, 3, 3)
+    sobel_y = torch.tensor([[-1., -2., -1.], [0., 0., 0.], [1., 2., 1.]], dtype=torch.float32).view(1, 1, 3, 3)
+
+    # 필터를 현재 장치로 이동 (CPU 또는 CUDA)
+    if image_batch.is_cuda:
+        sobel_x = sobel_x.to(image_batch.device)
+        sobel_y = sobel_y.to(image_batch.device)
+
+    # 배치의 각 이미지에 대해 채널별로 소벨 필터 적용
+    batch_size, channels, _, _ = image_batch.shape
+    edge_maps = torch.zeros_like(image_batch)
+
+    for i in range(batch_size):
+        for j in range(channels):
+            edge_x = F.conv2d(image_batch[i, j].view(1, 1, image_batch.size(2), image_batch.size(3)), sobel_x, padding=1)
+            edge_y = F.conv2d(image_batch[i, j].view(1, 1, image_batch.size(2), image_batch.size(3)), sobel_y, padding=1)
+            edge_maps[i, j] = torch.sqrt(edge_x**2 + edge_y**2)
+
+    return edge_maps
+# 기존의 Autoencoder 클래스 수정 또는 새로운 클래스 정의
+class AutoencoderWithEdgeMap(nn.Module):
+    def __init__(self, encoder, decoder):
+        super(AutoencoderWithEdgeMap, self).__init__()
+        self.encoder = encoder
+        self.decoder = decoder
+
+    def forward(self, x):
+        z = self.encoder(x)
+        edge_map = sobel_edge_detection(x)  # 엣지 맵 생성
+        recon = self.decoder(z, edge_map)
+        return recon
 
 def ensure_positive_definite(cov_matrix, noise_factor=1e-6):
     while True:
@@ -63,7 +130,7 @@ def ensure_positive_definite(cov_matrix, noise_factor=1e-6):
         if torch.min(eigenvalues) > 0:
             break  # The matrix is positive definite, break the loop
         cov_matrix += torch.eye(cov_matrix.size(0)) * noise_factor
-        noise_factor *= 0.0001  # Increase the noise factor for the next iteration if needed
+        noise_factor *= 0.01  # Increase the noise factor for the next iteration if needed
     #cov_matrix[cov_matrix<0] = noise_factor
 
     return cov_matrix
@@ -151,6 +218,41 @@ def train_latent_vector_generator(encoder, latent_vector_generator, data_loader,
 
     latent_vector_generator.fit(torch.tensor(latent_vectors), torch.tensor(labels))
 
+
+
+class EdgeGenerator(nn.Module):
+    def __init__(self, latent_dim, edge_dim):
+        super(EdgeGenerator, self).__init__()
+        # 네트워크 구조 정의
+        self.model = nn.Sequential(
+            nn.Linear(latent_dim, 1024),
+            nn.ReLU(True),
+            nn.Linear(1024, edge_dim * edge_dim),
+            nn.Sigmoid()
+        )
+        self.edge_dim = edge_dim
+
+    def forward(self, z):
+        edge_map = self.model(z)
+        edge_map = edge_map.view(-1, 1, self.edge_dim, self.edge_dim)  # edge_dim x edge_dim 크기로 변형
+        return edge_map
+
+class Generator(nn.Module):
+    def __init__(self, decoder, latent_vector_generator, edge_dim, edge_generator):
+        super(Generator, self).__init__()
+        self.latent_vector_generator = latent_vector_generator
+        self.decoder = decoder
+        self.edge_generator = edge_generator
+
+    def forward(self, labels):
+        z = self.latent_vector_generator.sample(labels)
+        #print("z device:", z.device)  # 장치 확인
+        edge_map = self.edge_generator(z)
+        #edge_map = edge_map.to(z.device)
+        #print("edge_map device:", edge_map.device)  # 장치 확인
+        z = z.view(z.size(0), -1, 4, 4)
+        img = self.decoder(z, edge_map)
+        return img
 class Discriminator(nn.Module):
     def __init__(self, encoder, num_classes):
         super(Discriminator, self).__init__()
@@ -170,15 +272,7 @@ class Discriminator(nn.Module):
             nn.Linear(64*4*4, num_classes+1), # 64*22*22
             #nn.Linear(64 * 4 * 4, num_classes+1),
         )
-        """
-        torch.Size([256, 64, 25, 25])
-        torch.Size([256, 64, 25, 25])
-        torch.Size([256, 64, 22, 22])
-        torch.Size([256, 64, 22, 22])
-        torch.Size([256, 30976])
-        torch.Size([256, 11])
-        """
-        
+
         # 인코더의 첫 번째 Conv2D 레이어의 가중치를 복사
         self.model[0].weight.data = encoder.model[0].weight.data.clone()
         self.model[0].bias.data = encoder.model[0].bias.data.clone()
@@ -192,41 +286,6 @@ class Discriminator(nn.Module):
         """
         #output = nn.functional.softmax(x, dim=1)
         return x
-
-
-class Generator(nn.Module):
-    def __init__(self, decoder, latent_vector_generator):
-        super(Generator, self).__init__()
-
-        self.latent_vector_generator = latent_vector_generator
-        self.decoder = decoder  # 디코더 구조와 가중치를 그대로 사용
-        
-    def forward(self, labels):
-        z = self.latent_vector_generator.sample(labels)
-        z = z.to(labels.device).float()  # Ensure z is on the correct device
-        z = z.squeeze(1)
-        z = z.view(z.size(0), -1, 4, 4)
-        return self.decoder(z)
-
-
-def show_generated_imgs(generator, device, num_images=64):
-    # 잠재 벡터 z 생성
-    z = torch.LongTensor(np.random.randint(0,9, num_images)).to(device)
-    
-    # 이미지 생성
-    generator.eval() # 생성자를 평가 모드로 설정
-    with torch.no_grad(): # 그라디언트 계산을 하지 않음
-        fake_images = generator(z).detach().cpu()
-    generator.train() # 생성자를 훈련 모드로 되돌림
-
-    # 이미지의 픽셀 값을 [0, 1] 범위로 정규화
-    fake_images = make_grid(fake_images, normalize=True, nrow=int(np.sqrt(num_images)))
-    
-    # 이미지 시각화
-    plt.figure(figsize=(8, 8))
-    plt.imshow(np.transpose(fake_images.numpy(), (1, 2, 0)))
-    plt.axis('off')
-    plt.show()
 
 def show_generated_imgs_binary(generator, device, num_classes=2, num_images=64):
     # 잠재 벡터 z 생성
@@ -246,16 +305,13 @@ def show_generated_imgs_binary(generator, device, num_classes=2, num_images=64):
     plt.imshow(np.transpose(fake_images.numpy(), (1, 2, 0)))
     plt.axis('off')
     plt.show()
-
-
-
 #%%
 if __name__ == '__main__':
     lr = 0.0001
-    num_epochs = 10
+    num_epochs = 15
     input_dim = 32 * 32
-    output_dim = 100
-    batch_size = 128
+    output_dim = 128
+    batch_size = int(128 / 2)
     #device = torch.device('cpu')
     
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -267,46 +323,44 @@ if __name__ == '__main__':
     ])
     
     dataset = datasets.CIFAR10(root='./data', train=True, transform=transform, download=False)
-    data_loader = DataLoader(dataset, batch_size=batch_size, shuffle=True, drop_last=True)
+    data_loader = DataLoader(BinaryCIFAR10Dataset(dataset, transform=None, majority_class=1, minority_class=3), batch_size=batch_size, shuffle=True, drop_last=True)
+
     
-    
-    autoencoder = nn.Sequential(Encoder(), Decoder())
-    autoencoder = nn.DataParallel(autoencoder)
-    autoencoder.to(device)
+    autoencoder = AutoencoderWithEdgeMap(Encoder(), Decoder()).to(device)
     ae_optimizer = optim.Adam(autoencoder.parameters(), lr=lr)
     ae_loss_func = nn.MSELoss()
-    
-    
+
     for epoch in range(num_epochs):
         for i, (imgs, _) in enumerate(data_loader):
-            #imgs = imgs.view(imgs.size(0), -1).to(device)
             imgs = imgs.to(device)
             ae_optimizer.zero_grad()
-            recon = autoencoder(imgs)
+            recon = autoencoder(imgs)  # 엣지 맵이 내부적으로 생성되고 사용됨
             ae_loss = ae_loss_func(recon, imgs)
             ae_loss.backward()
             ae_optimizer.step()
         print(f"[Epoch {epoch}/{num_epochs}] [Batch {i}/{len(data_loader)}] [AE loss: {ae_loss.item()}] ")
-    
+
     #%%
-    
     lr = 0.0001
-    num_epochs = 2
-    num_classes = 10
+    num_epochs = 3
+    num_classes = 2
     latent_dim = 256*4*4
-    batch_size = 128*2
-    
+    batch_size = 128 / 2
+    edge_dim= 32
+
     # LatentVectorGenerator 준비
-    latent_vector_generator = LatentVectorGenerator(num_classes=num_classes, latent_dim=latent_dim).to(device)
+    latent_vector_generator = LatentVectorGenerator(num_classes=num_classes, latent_dim=latent_dim, device=device).to(device)
     
     # LatentVectorGenerator 학습
-    train_latent_vector_generator(autoencoder.module[0], latent_vector_generator, data_loader, device)
+    train_latent_vector_generator(autoencoder.encoder, latent_vector_generator, data_loader, device)
     
     #discriminator = Discriminator(autoencoder[0], num_classes).to(device)
     #generator = Generator(autoencoder[1], latent_vector_generator).to(device)
-    
-    discriminator = nn.DataParallel(Discriminator(autoencoder.module[0], num_classes)).to(device)
-    generator = nn.DataParallel(Generator(autoencoder.module[1], latent_vector_generator)).to(device)
+
+    edge_generator = EdgeGenerator(latent_vector_generator.latent_dim, edge_dim)
+
+    discriminator = Discriminator(autoencoder.encoder, num_classes).to(device)
+    generator = Generator(autoencoder.decoder, latent_vector_generator,edge_dim=edge_dim, edge_generator=edge_generator).to(device)
     
     
     
@@ -366,116 +420,20 @@ if __name__ == '__main__':
             loss_dict['d_loss'].append(d_loss.item())
             loss_dict['g_loss'].append(g_loss.item())
             print(f"[Epoch {epoch}/{num_epochs}] [Batch {i}/{len(data_loader)}] [D loss: {d_loss.item()}] [G loss: {g_loss.item()}]")
-            if i % 100 == 0:
-                show_generated_imgs(generator, device)
-    
-    
-    #%%
-    
-    import matplotlib.pyplot as plt
-    
-    
-    with torch.no_grad():
-        #z = torch.randn(batch_size, latent_dim).to(device)  # 64개의 랜덤 벡터 생성
-        gen_labels = torch.LongTensor(np.random.randint(0,1, batch_size)).to(device)
-        fake_images = generator(gen_labels).detach().cpu()
-        fake_images = fake_images.reshape(fake_images.shape[0], 3, 32, 32)
-    
-    # 이미지 출력
-    fig, axes = plt.subplots(1, 8, figsize=(20, 2))
-    for i in range(8):
-        axes[i].imshow(torchvision.utils.make_grid(fake_images[i], normalize=True).permute(1, 2, 0))
-        axes[i].axis('off')
-    plt.show()
-    print(gen_labels[:8])
-    #%%
-    
-    
-    # 이미지를 [0, 1] 범위로 역정규화합니다.
-    def imshow(img):
-        img = img / 2 + 0.5     # unnormalize
-        npimg = img.numpy()
-        plt.imshow(np.transpose(npimg, (1, 2, 0)))
-        plt.show()
-    
-    # imgs 텐서에서 첫 번째 이미지를 선택합니다.
-    # imgs 텐서는 [batch_size, channels, height, width] 형태라고 가정합니다.
-    
-    
-    # 이미지를 시각화합니다.
-    imshow(imgs[17].cpu())
-    imshow(fake_images[6])
-    
-    
-    #%%
-    
-    plt.plot(loss_dict['d_loss'], c='b', label='d_loss')
-    plt.plot(loss_dict['g_loss'], c='g', label='g_loss')
-    plt.legend()
-    
-    
-    #%% FID 계산
-    
-    #device = torch.device('cuda:1' if torch.cuda.is_available() else 'cpu')
-    
-    
-    from scipy.linalg import sqrtm
-    import numpy as np
-    import torch
-    from torchvision.models import inception_v3
-    from torch.utils.data import DataLoader
-    
-    def calculate_fid(model, real_images, fake_images):
-        # 모델을 평가 모드로 설정
-        model.eval()
-    
-        # 실제 이미지와 생성된 이미지에서 특징 추출
-        real_features = model(real_images).detach().cpu().numpy()
-        fake_features = model(fake_images).detach().cpu().numpy()
-        
-        # 평균과 공분산 계산
-        mu1, sigma1 = real_features.mean(axis=0), np.cov(real_features, rowvar=False)
-        mu2, sigma2 = fake_features.mean(axis=0), np.cov(fake_features, rowvar=False)
-        
-        # FID 계산
-        ssdiff = np.sum((mu1 - mu2) ** 2.0)
-        covmean = sqrtm(sigma1.dot(sigma2))
-        
-        # 계산이 복소수일 수 있으므로 실수만 취함
-        if np.iscomplexobj(covmean):
-            covmean = covmean.real
-        
-        fid = ssdiff + np.trace(sigma1 + sigma2 - 2.0 * covmean)
-        
-        return fid
-    
-    # Inception 모델 불러오기
-    inception_model = inception_v3(pretrained=True)
-    inception_model.fc = torch.nn.Identity()
-    inception_model = nn.DataParallel(inception_model)
-    inception_model.to(device)
-    
-    
-    # 데이터 로더 설정
-    real_data_loader =  DataLoader(dataset, batch_size=32, shuffle=True, drop_last=True)
-    fake_data_loader = DataLoader(generator(torch.LongTensor(np.random.randint(0,9, 32)).to(device)), batch_size=32,shuffle=True)
-    
-    # 이미지 배치 가져오기 (예시)
-    real_images, _ = next(iter(real_data_loader))
-    fake_images = next(iter(fake_data_loader))
-    
-    
-    
-    
-    real_images = nn.functional.interpolate(real_images, size=(299, 299), mode='bilinear', align_corners=False).to(device)
-    fake_images = nn.functional.interpolate(fake_images, size=(299, 299), mode='bilinear', align_corners=False)
-    
-    # FID 계산
-    fid_value = calculate_fid(inception_model, real_images, fake_images)
-    print(f'FID score: {fid_value}')
-    
+            if i % 10 == 0:
+                show_generated_imgs_binary(generator,num_classes=num_classes, device=device)
 
-#%%
+
+
+
+
+
+
+
+
+
+
+
 
 
 

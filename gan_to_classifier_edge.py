@@ -198,7 +198,7 @@ def generate_images(generator, z_dim= 100, num_images=1000):
 
 #%%
 if __name__ == '__main__':
-    trained_generator, loss_dict1 = train_wgan(param1=0.9, param2=0.0, param3=0.0000, num_epochs=500, z_dim=128, minority_class=9, minority_size = 600, lr=0.001)
+    trained_generator, loss_dict1 = train_wgan(param1=1.0, param2=0.0, param3=0.0000, num_epochs=500, z_dim=128, minority_class=9, minority_size = 300, lr=0.001)
     #sum([(loss_dict1['grad'][xx]>1).sum() for xx in range(len(loss_dict1['grad']))])
     generated_images = generate_images(trained_generator, z_dim=128, num_images=5400)
     train_loader = make_concated_dataloader(generated_images, batch_size=128, majority_class=1, minority_class=9)
@@ -271,3 +271,5 @@ if __name__ == '__main__':
     print(f"AUROC: {roc_auc_score(all_labels, all_probs):.4f}")
     print(confusion_matrix(all_labels, all_preds))
     
+#%%
+

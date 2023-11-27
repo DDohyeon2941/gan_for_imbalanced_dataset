@@ -25,7 +25,7 @@ visualize_tensor(inputs.detach()[0])
 
 #%%
 
-test_loader = load_test_loader(batch_size=128, majority_class=1, minority_class=9)
+test_loader = load_test_loader(batch_size=128, majority_class=6, minority_class=3)
 for inputs, labels in test_loader: break
 
 #%%
@@ -234,4 +234,4 @@ def visualize_tensor_with_edges(tensor_image, scale_factor=2):
     plt.show()
 #%%
 # 이미지 시각화 실행
-visualize_tensor_with_edges(inputs.detach()[120])
+visualize_tensor_with_edges(inputs.detach()[100])
